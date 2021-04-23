@@ -1,3 +1,4 @@
+---
 # .readthedocs.yml
 # Read the Docs configuration file
 # See https://docs.readthedocs.io/en/stable/config-file/v2.html for details
@@ -11,6 +12,6 @@ sphinx:
 formats: all
 
 python:
-  version: 3.7
+  version: 3.8
   install:
     - requirements: requirements-dev.txt

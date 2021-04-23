@@ -64,7 +64,7 @@ class CondaPackageHelper:
     def installed_packages(self):
         """Return the installed packages"""
         if self.installed is None:
-            LOGGER.info(f"Grabing the list of installed packages ...")
+            LOGGER.info("Grabing the list of installed packages ...")
             self.installed = CondaPackageHelper._packages_from_json(
                 self._execute_command(CondaPackageHelper._conda_export_command())
             )
@@ -73,9 +73,9 @@ class CondaPackageHelper:
     def specified_packages(self):
         """Return the specifications (i.e. packages installation requested)"""
         if self.specs is None:
-            LOGGER.info(f"Grabing the list of specifications ...")
+            LOGGER.info("Grabing the list of specifications ...")
             self.specs = CondaPackageHelper._packages_from_json(
-                self._execute_command(CondaPackageHelper._conda_export_command(True))
+                self._execute_command(CondaPackageHelper._conda_export_command(from_history=True))
             )
         return self.specs
 
@@ -87,13 +87,17 @@ class CondaPackageHelper:
     @staticmethod
     def _packages_from_json(env_export):
         """Extract packages and versions from the lines returned by the list of specifications"""
+        # dependencies = filter(lambda x:  isinstance(x, str), json.loads(env_export).get("dependencies"))
         dependencies = json.loads(env_export).get("dependencies")
+        # Filtering packages installed through pip in this case it's a dict {'pip': ['toree==0.3.0']}
+        # Since we only manage packages installed through conda here
+        dependencies = filter(lambda x: isinstance(x, str), dependencies)
         packages_dict = dict()
-        for split in map(lambda x: x.split("=", 1), dependencies):
+        for split in map(lambda x: re.split("=?=", x), dependencies):
             # default values
             package = split[0]
             version = set()
-            # cheking if it's a proper version by testing if the first char is a digit
+            # checking if it's a proper version by testing if the first char is a digit
             if len(split) > 1:
                 if split[1][0].isdigit():
                     # package + version case
@@ -108,7 +112,7 @@ class CondaPackageHelper:
         """Return the available packages"""
         if self.available is None:
             LOGGER.info(
-                f"Grabing the list of available packages (can take a while) ..."
+                "Grabing the list of available packages (can take a while) ..."
             )
             # Keeping command line output since `conda search --outdated --json` is way too long ...
             self.available = CondaPackageHelper._extract_available(
@@ -126,12 +130,12 @@ class CondaPackageHelper:
         return ddict
 
     def check_updatable_packages(self, specifications_only=True):
-        """Check the updatables packages including or not dependencies"""
+        """Check the updatable packages including or not dependencies"""
         specs = self.specified_packages()
         installed = self.installed_packages()
         available = self.available_packages()
         self.comparison = list()
-        for pkg, inst_vs in self.installed.items():
+        for pkg, inst_vs in installed.items():
             if not specifications_only or pkg in specs:
                 avail_vs = sorted(
                     list(available[pkg]), key=CondaPackageHelper.semantic_cmp
@@ -141,9 +145,10 @@ class CondaPackageHelper:
                 current = min(inst_vs, key=CondaPackageHelper.semantic_cmp)
                 newest = avail_vs[-1]
                 if avail_vs and current != newest:
-                    if CondaPackageHelper.semantic_cmp(
-                        current
-                    ) < CondaPackageHelper.semantic_cmp(newest):
+                    if (
+                        CondaPackageHelper.semantic_cmp(current) <
+                        CondaPackageHelper.semantic_cmp(newest)
+                    ):
                         self.comparison.append(
                             {"Package": pkg, "Current": current, "Newest": newest}
                         )
@@ -154,7 +159,8 @@ class CondaPackageHelper:
         """Manage semantic versioning for comparison"""
 
         def mysplit(string):
-            version_substrs = lambda x: re.findall(r"([A-z]+|\d+)", x)
+            def version_substrs(x):
+                return re.findall(r"([A-z]+|\d+)", x)
             return list(chain(map(version_substrs, string.split("."))))
 
         def str_ord(string):
@@ -175,10 +181,7 @@ class CondaPackageHelper:
 
     def get_outdated_summary(self, specifications_only=True):
         """Return a summary of outdated packages"""
-        if specifications_only:
-            nb_packages = len(self.specs)
-        else:
-            nb_packages = len(self.installed)
+        nb_packages = len(self.specs if specifications_only else self.installed)
         nb_updatable = len(self.comparison)
         updatable_ratio = nb_updatable / nb_packages
         return f"{nb_updatable}/{nb_packages} ({updatable_ratio:.0%}) packages could be updated"
